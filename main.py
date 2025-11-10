@@ -1143,7 +1143,7 @@ class FishingPlugin(Star):
         async for r in admin_handlers.replenish_fish_pools(self, event):
             yield r
 
-    @filter.permission_type(PermissionType.ADMIN)
+    # @filter.permission_type(PermissionType.ADMIN)
     @filter.command("骰宝结算")
     async def force_settle_sicbo(self, event: AstrMessageEvent):
         """[管理员] 跳过倒计时直接结算当前骰宝游戏"""
