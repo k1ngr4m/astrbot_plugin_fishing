@@ -7,7 +7,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.core.star.filter.permission import PermissionType
 from astrbot.api.message_components import At, Node, Plain
 
-from ..utils import parse_target_user_id, _is_port_available
+from ..utils import parse_target_user_id, _is_port_available, parse_amount
 from ..manager.server import create_app
 from typing import TYPE_CHECKING
 
@@ -145,13 +145,17 @@ async def reward_all_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     """给所有注册用户发放金币"""
     args = event.message_str.split(" ")
     if len(args) < 2:
-        yield event.plain_result("❌ 请指定奖励的金币数量，例如：/全体奖励金币 1000")
+        yield event.plain_result("❌ 请指定奖励的金币数量，例如：/全体奖励金币 1000 或 /全体奖励金币 一万")
         return
-    amount = args[1]
-    if not amount.isdigit() or int(amount) <= 0:
-        yield event.plain_result("❌ 奖励数量必须是正整数，请检查后重试。")
+    
+    try:
+        amount_int = parse_amount(args[1])
+        if amount_int <= 0:
+            yield event.plain_result("❌ 奖励数量必须是正整数，请检查后重试。")
+            return
+    except ValueError as e:
+        yield event.plain_result(f"❌ 数量格式错误：{str(e)}")
         return
-    amount_int = int(amount)
     user_ids = plugin.user_repo.get_all_user_ids()
     if not user_ids:
         yield event.plain_result("❌ 当前没有注册用户。")
@@ -280,20 +284,24 @@ async def reward_coins(plugin: "FishingPlugin", event: AstrMessageEvent):
     # 检查金币数量参数
     if len(args) < 3:
         yield event.plain_result(
-            "❌ 请指定金币数量，例如：/奖励金币 @用户 1000 或 /奖励金币 123456789 1000"
+            "❌ 请指定金币数量，例如：/奖励金币 @用户 1000 或 /奖励金币 @用户 一万"
         )
         return
 
-    coins = args[2]
-    if not coins.isdigit():
-        yield event.plain_result("❌ 金币数量必须是数字，请检查后重试。")
+    try:
+        coins = parse_amount(args[2])
+        if coins <= 0:
+            yield event.plain_result("❌ 金币数量必须是正整数，请检查后重试。")
+            return
+    except ValueError as e:
+        yield event.plain_result(f"❌ 数量格式错误：{str(e)}")
         return
 
     if (current_coins := plugin.user_service.get_user_currency(target_user_id)) is None:
         yield event.plain_result("❌ 用户不存在或未注册，请检查后重试。")
         return
     if result := plugin.user_service.modify_user_coins(
-        target_user_id, int(current_coins.get("coins") + int(coins))
+        target_user_id, int(current_coins.get("coins") + coins)
     ):
         yield event.plain_result(f"✅ 成功给用户 {target_user_id} 奖励 {coins} 金币")
     else:
@@ -572,3 +580,72 @@ async def replenish_fish_pools(plugin: "FishingPlugin", event: AstrMessageEvent)
         logger.error(f"补充鱼池时发生错误: {e}")
         yield event.plain_result(f"❌ 补充鱼池时发生错误：{str(e)}")
         return
+
+
+async def grant_title(plugin: "FishingPlugin", event: AstrMessageEvent):
+    """授予用户称号"""
+    args = event.message_str.split(" ")
+    
+    # 解析目标用户ID（支持@和用户ID两种方式）
+    target_user_id, error_msg = parse_target_user_id(event, args, 1)
+    if error_msg:
+        yield event.plain_result(error_msg)
+        return
+    
+    # 检查称号名称参数
+    if len(args) < 3:
+        yield event.plain_result(
+            "❌ 请指定称号名称，例如：/授予称号 @用户 钓鱼大师 或 /授予称号 123456789 钓鱼大师"
+        )
+        return
+    
+    title_name = " ".join(args[2:])  # 支持称号名称中包含空格
+    
+    result = plugin.user_service.grant_title_to_user_by_name(target_user_id, title_name)
+    yield event.plain_result(result["message"])
+
+
+async def revoke_title(plugin: "FishingPlugin", event: AstrMessageEvent):
+    """移除用户称号"""
+    args = event.message_str.split(" ")
+    
+    # 解析目标用户ID（支持@和用户ID两种方式）
+    target_user_id, error_msg = parse_target_user_id(event, args, 1)
+    if error_msg:
+        yield event.plain_result(error_msg)
+        return
+    
+    # 检查称号名称参数
+    if len(args) < 3:
+        yield event.plain_result(
+            "❌ 请指定称号名称，例如：/移除称号 @用户 钓鱼大师 或 /移除称号 123456789 钓鱼大师"
+        )
+        return
+    
+    title_name = " ".join(args[2:])  # 支持称号名称中包含空格
+    
+    result = plugin.user_service.revoke_title_from_user_by_name(target_user_id, title_name)
+    yield event.plain_result(result["message"])
+
+
+async def create_title(plugin: "FishingPlugin", event: AstrMessageEvent):
+    """创建自定义称号"""
+    args = event.message_str.split(" ")
+    
+    if len(args) < 3:
+        yield event.plain_result(
+            "❌ 请指定称号名称和描述，例如：/创建称号 称号名称 描述 [显示格式]\n"
+            "显示格式可选，默认为 {name}，可以使用 {name} 和 {username} 占位符"
+        )
+        return
+    
+    title_name = args[1]
+    description = " ".join(args[2:-1]) if len(args) > 3 and args[-1].startswith("{") else " ".join(args[2:])
+    display_format = args[-1] if len(args) > 3 and args[-1].startswith("{") else "{name}"
+    
+    # 如果描述为空，使用默认值
+    if not description:
+        description = f"自定义称号：{title_name}"
+    
+    result = plugin.user_service.create_custom_title(title_name, description, display_format)
+    yield event.plain_result(result["message"])

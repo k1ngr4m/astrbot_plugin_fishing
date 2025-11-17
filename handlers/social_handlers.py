@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 async def ranking(plugin: "FishingPlugin", event: AstrMessageEvent):
     """
     查看排行榜。
-    支持按不同标准排序，例如：/排行榜 数量 或 /排行榜 重量
+    支持按不同标准排序，例如：/排行榜 数量 或 /排行榜 重量 或 /排行榜 历史
     默认按金币排名。
     """
     args = event.message_str.split()
@@ -27,6 +27,8 @@ async def ranking(plugin: "FishingPlugin", event: AstrMessageEvent):
             ranking_type = "fish_count"
         elif sort_key in ["重量", "weight"]:
             ranking_type = "total_weight_caught"
+        elif sort_key in ["历史", "最高", "max", "history", "历史最高"]:
+            ranking_type = "max_coins"
 
     # 1. 从服务层获取基础排行榜数据（现在已包含 user_id 和 current_title_id）
     user_data = plugin.user_service.get_leaderboard_data(sort_by=ranking_type).get(
@@ -85,12 +87,12 @@ async def ranking(plugin: "FishingPlugin", event: AstrMessageEvent):
     unique_id = getattr(
         event, "message_id", f"{user_id_for_filename}_{int(time.time())}"
     )
-    # 清理unique_id中的非法字符，只保留字母、数字、下划线和连字符
-    import re
-    clean_unique_id = re.sub(r'[^a-zA-Z0-9_-]', '_', str(unique_id))
-    output_path = os.path.join(plugin.tmp_dir, f"fishing_ranking_{clean_unique_id}.png")
+    # 安全化文件名，移除特殊字符
+    from ..utils import sanitize_filename
+    safe_unique_id = sanitize_filename(str(unique_id))
+    output_path = os.path.join(plugin.tmp_dir, f"fishing_ranking_{safe_unique_id}.png")
 
-    draw_fishing_ranking(user_data, output_path=output_path)
+    draw_fishing_ranking(user_data, output_path=output_path, ranking_type=ranking_type)
     yield event.image_result(output_path)
 
 
